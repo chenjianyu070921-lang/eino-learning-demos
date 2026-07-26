@@ -1,0 +1,24 @@
+# ===== 敏感信息：忽略所有 .env（含 API Key / 密码），保留模板 .env.example =====
+**/.env
+
+# ===== 编译产物 =====
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ===== Go =====
+vendor/
+
+# ===== 操作系统 / 杂项 =====
+.DS_Store
+Thumbs.db
