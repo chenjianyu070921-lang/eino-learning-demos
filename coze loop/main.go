@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	ccb "github.com/cloudwego/eino-ext/callbacks/cozeloop"
 	"github.com/cloudwego/eino/callbacks"
@@ -29,6 +30,8 @@ func main() {
 	//indexer := IndexerClient(ctx, milvus, embedding)
 	//retriever := RetrieverClient(ctx, milvus, embedding)
 	//2.初始化扣子罗盘
+	fmt.Println("model:", os.Getenv("7668117060077699072"))
+	fmt.Println("api:", os.Getenv("pat_tA9B1KHir2qVW1qh8IIUzltKFuaxlbiDM4A6IjUh4OJWrdfIxMuDBpMNbpaVNkL0"))
 	client, err := cozeloop.NewClient()
 	if err != nil {
 		panic(err)
@@ -59,11 +62,11 @@ func main() {
 	output, err := compile.Stream(ctx, map[string]string{
 		"role":    "aojiao",
 		"content": "我喜欢你",
-	})
+	}, compose.WithCallbacks(gencallback()))
 	if err != nil {
 		panic(err)
 	}
-	defer output.Close()
+
 	for {
 		// 从流式流中接收一段模型返回的数据分片（chunk）
 		recv, err := output.Recv()
@@ -84,6 +87,15 @@ func main() {
 			_, _ = fmt.Fprint(os.Stdout, recv.Content)
 		}
 	}
+	// ===== 关键修复：读完立刻 Close 流 =====
+	output.Close() // ← 加上这行！触发 llm 节点的 OnEndWithStreamOutput 回调
+
+	// 给异步上报留时间
+	fmt.Println("\n=== 等待 trace 上报 ===")
+	time.Sleep(3 * time.Second)
+
+	// 然后再关闭 client
+	client.Close(ctx)
 }
 
 // 编写节点
@@ -144,8 +156,19 @@ func Branch() *compose.GraphBranch {
 	},
 		map[string]bool{
 			"aojiao": true,
-			"keai":   true,
-		},
+			"keai":   true},
 	)
 	return branch
+}
+func gencallback() callbacks.Handler {
+	handler := callbacks.NewHandlerBuilder().
+		OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
+			fmt.Printf("[trace] %s/%s start\n", info.Component, info.Name)
+			return ctx
+		}).
+		OnEndFn(func(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
+			fmt.Printf("[trace] %s/%s end\n", info.Component, info.Name)
+			return ctx
+		}).Build()
+	return handler
 }
