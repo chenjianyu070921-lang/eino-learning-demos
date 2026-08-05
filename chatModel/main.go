@@ -35,11 +35,13 @@ func main() {
 	}
 
 	ctx := context.Background()
-	// ark普通ChatModel仅支持普通Message，直接调用runNormal
+	// ark 普通 ChatModel 仅支持普通 Message，直接调用 runNormal 跑流式对话
 	runNormal(ctx, instruction, query)
 
 }
 func runNormal(ctx context.Context, instruction string, query string) {
+	// 创建 ChatModel 客户端：从环境变量读取 APIKey / 模型ID / 接入地址。
+	// Thinking 设为 Disabled 表示关闭“深度思考”模式（有些模型支持思考过程）。
 	model, err := ark.NewChatModel(ctx, &ark.ChatModelConfig{
 		APIKey:  os.Getenv("ARK_API_KEY"),
 		Model:   os.Getenv("ARK_MODEL_ID"),
@@ -51,22 +53,25 @@ func runNormal(ctx context.Context, instruction string, query string) {
 		os.Exit(1)
 	}
 
-	// 固定切片类型 []*schema.Message，和 Stream 入参匹配
+	// 构造消息列表：System 设定角色/口吻，User 是用户真正的问题。
+	// 注意类型固定是 []*schema.Message 切片，和 Stream 的入参一致。
 	message := []*schema.Message{
-		schema.SystemMessage(instruction), //系统消息
+		schema.SystemMessage(instruction), //系统消息（人设/指令）
 		schema.UserMessage(query),         //用户提问消息
 	}
 
+	// Stream 返回“流”，模型每生成一小段就立刻吐出来，实现“打字机”效果。
 	_, _ = fmt.Fprint(os.Stdout, "[assistant] ")
 	stream, err := model.Stream(ctx, message)
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	defer stream.Close()
+	defer stream.Close() // 读完一定要 Close，释放连接
 
+	// 循环从流里取数据：io.EOF 表示流结束；其余错误才中断。
 	for {
-		recv, err := stream.Recv() //流式输出
+		recv, err := stream.Recv() //流式输出：每次取一小段（chunk）
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -75,8 +80,8 @@ func runNormal(ctx context.Context, instruction string, query string) {
 			os.Exit(1)
 		}
 		if recv != nil {
-			_, _ = fmt.Fprint(os.Stdout, recv.Content)
+			_, _ = fmt.Fprint(os.Stdout, recv.Content) // 追加打印这一段（不换行）
 		}
 	}
-	_, _ = fmt.Fprintln(os.Stdout)
+	_, _ = fmt.Fprintln(os.Stdout) // 流结束后补一个换行
 }

@@ -12,10 +12,18 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// 本示例演示 Eino 两个核心概念：
+//  1. State（图状态）：一个在整张图运行期间一直存活的共享“白板”，任何节点可读写。
+//     这里 State.History 存了 aojiao/keai 两段“角色描述”，下游分支节点读取它来拼 prompt。
+//  2. Branch（分支）：根据 lambda 节点输出的 role，把数据路由到“傲娇”或“可爱”分支。
+//
+// 运行：cd stateDemo && go run .   （需先放好 .env）
+// 注意：ChatModelClient 定义在同目录的 newChatModel.go。
 type State struct {
 	History map[string]string
 }
 
+// NewState：State 初始化函数，通过 WithGenLocalState 注册给图。
 func NewState(ctx context.Context) *State {
 	return &State{History: make(map[string]string)}
 }
@@ -26,6 +34,7 @@ func main() {
 	fmt.Println(".env加载成功")
 	ctx := context.Background()
 
+	// 创建带 State 的图：输入/输出类型是 map[string]string → *schema.Message
 	graph := compose.NewGraph[map[string]string, *schema.Message](
 		compose.WithGenLocalState(NewState),
 	)
@@ -122,7 +131,9 @@ func main() {
 	}
 
 	//
-	// 2. 绑定分支：lambda节点输出走分支路由
+	// 2. 绑定分支：lambda节点输出走分支路由。
+	// ⚠️ 顺序提醒：AddBranch 必须在 lambda1/lambda2 已经 AddLambdaNode 加入图之后调用，
+	// 否则会报 "branch end node needs to be added to graph first"。
 	err = graph.AddBranch("lambda", branch)
 	if err != nil {
 		panic(err)

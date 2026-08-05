@@ -13,10 +13,13 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// State 是本图的共享状态：History 存两段“角色描述”，供不同分支读取。
+// 注意这里 History 是 map[string]string（这个示例用 string 足以）。
 type State struct {
 	History map[string]string
 }
 
+// NewState：State 初始化函数，通过 WithGenLocalState 注册给图。
 func NewState(ctx context.Context) *State {
 	return &State{History: make(map[string]string)}
 }
@@ -27,6 +30,7 @@ func main() {
 	fmt.Println(".env加载成功")
 	ctx := context.Background()
 
+	// 创建带 State 的图（输入/输出都是 map[string]string → *schema.Message）。
 	graph := compose.NewGraph[map[string]string, *schema.Message](
 		compose.WithGenLocalState(NewState),
 	)
@@ -154,6 +158,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	// 运行图（流式）。WithCallbacks(gencallback()) 给这次运行挂上回调，
+	// 这样每个节点开始/结束都会打印一行 [trace]，方便观察图到底跑了哪些节点。
 	output, err := compile.Stream(ctx, map[string]string{
 		"role":    "keai",
 		"content": "我喜欢你",
@@ -184,6 +190,10 @@ func main() {
 	}
 	// 流式接收循环结束后，输出换行，
 }
+// gencallback 构造一个“回调处理器”：监听图中每个节点的生命周期。
+// OnStartFn 在节点开始前触发，OnEndFn 在节点结束后触发。
+// info.Component / info.Name 能告诉你是哪个组件（如 ChatModel / Lambda）的哪个节点。
+// 这就是 Eino 的“可观测性”基础——生产环境常用它接日志/链路追踪（如 coze loop 目录）。
 func gencallback() callbacks.Handler {
 	handler := callbacks.NewHandlerBuilder().
 		OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {

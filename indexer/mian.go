@@ -61,12 +61,12 @@ func main() {
 
 	indexerConfig := milvus2.IndexerConfig{
 		Client:     newClient,                 //Milvus 客户端实例
-		Collection: "personal_knowledge_base", //目标集合名称
+		Collection: "personal_knowledge_base", //目标集合名称（注意：和 retriever 示例用的 "test" 不同，跑通前后端要注意一致）
 		Embedding:  embedder,                  //Embedding 向量化实例
 		Vector: &milvus2.VectorConfig{
-			Dimension:    1024,                                                            // 与 embedding 模型维度匹配
-			MetricType:   milvus2.COSINE,                                                  //距离度量方式，用于向量相似度检索
-			IndexBuilder: milvus2.NewHNSWIndexBuilder().WithM(16).WithEfConstruction(200), //用来定义 Milvus 向量索引类型，你这里使用 HNSW（主流高性能内存索引）
+			Dimension: 1024, // 向量维度，必须和 embedding 模型（bge-m3=1024维）一致，否则入库/检索会报维度不匹配
+			MetricType: milvus2.COSINE, //距离度量方式：余弦相似度，最常用
+			IndexBuilder: milvus2.NewHNSWIndexBuilder().WithM(16).WithEfConstruction(200), //HNSW 高性能向量索引
 		},
 	}
 

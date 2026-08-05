@@ -22,23 +22,29 @@ func main() {
 
 	ctx := context.Background()
 	chatModel := ChatModelClient(ctx)
-	invokableTool := CreateTool()
+	invokableTool := CreateTool() // 复用 eino-tool 里定义的“查官网”工具
 
+	// 打印工具元数据：大模型靠 Name/Desc 判断何时调用工具
 	info, err := invokableTool.Info(ctx)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Printf("工具名称: %s\n工具描述: %s\n", info.Name, info.Desc)
 
+	// ReAct Agent：一种“推理(Reasoning)+行动(Acting)”循环。
+	// 流程大致是：模型思考 → 决定调工具 → 拿到结果 → 再思考 → 直到能回答用户。
+	// 整个过程对用户透明，最终只看到最终回答（这里用 Stream 逐字输出）。
 	agent, err := react.NewAgent(ctx, &react.AgentConfig{
 		Model: chatModel,
+		// ToolsConfig：把工具挂给 Agent。模型在需要时自己决定调用哪个工具、传什么参数。
 		ToolsConfig: compose.ToolsNodeConfig{
 			Tools: []tool.BaseTool{invokableTool},
 		},
+		// MessageModifier / PersonaModifier：给 Agent 设定人设与硬性规则（system 指令）。
 		MessageModifier: react.NewPersonaModifier(
 			"你是网站助手。用户询问大模型或游戏的官方网址时，必须调用 get_llm_url 工具查询，不能编造链接；取得工具结果后再简洁回答。",
 		),
-		MaxStep: 8, //防止模型无线循环调用
+		MaxStep: 8, //防止模型无线循环调用工具（安全上限）
 	})
 	if err != nil {
 		panic(err)

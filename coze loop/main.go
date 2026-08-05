@@ -21,22 +21,25 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		panic("加载.env文件失败" + err.Error())
 	}
-	//1.获取各大组件的客户端
+	// 1. 准备大模型客户端（图里真正用到的节点）
 	ctx := context.Background()
 	chatModel := ChatModelClient(ctx)
-	//chatTemplate := ChatTemplateClient(ctx)
-	//embedding := EmbeddingClient(ctx)
-	//milvus := MilvusClient(ctx)
-	//indexer := IndexerClient(ctx, milvus, embedding)
-	//retriever := RetrieverClient(ctx, milvus, embedding)
-	//2.初始化扣子罗盘
-	fmt.Println("model:", os.Getenv("7668117060077699072"))
-	fmt.Println("api:", os.Getenv("pat_tA9B1KHir2qVW1qh8IIUzltKFuaxlbiDM4A6IjUh4OJWrdfIxMuDBpMNbpaVNkL0"))
+	// 与 callback 示例不同，这里专注演示“如何把图接入扣子罗盘做分布式追踪”，
+	// 所以只用了 chatModel，其余组件（template/embedding/milvus 等）注释掉未用。
+
+	// 2. 初始化“扣子罗盘”（CozeLoop）：一个分布式追踪/可观测性平台。
+	//    它会在后台把每个节点的开始/结束、耗时、输入输出上报到云端控制台。
+	//    注意：这两行 os.Getenv 只是演示读取，真实的 Token 由 cozeloop.NewClient()
+	//    自动从环境变量 COZELOOP_*/ARK_* 读取，无需手动传。
+	fmt.Println("model:", os.Getenv("ARK_MODEL_ID"))
+	fmt.Println("api:", os.Getenv("ARK_API_KEY"))
 	client, err := cozeloop.NewClient()
 	if err != nil {
 		panic(err)
 	}
 	defer client.Close(ctx)
+	// NewLoopHandler 把 cozeloop client 包装成 Eino 回调处理器；
+	// AppendGlobalHandlers 把它挂成“全局回调”——之后所有图/组件的运行都会自动上报 trace。
 	handler := ccb.NewLoopHandler(client)
 	callbacks.AppendGlobalHandlers(handler)
 	//3.编写节点别名
@@ -88,9 +91,10 @@ func main() {
 		}
 	}
 	// ===== 关键修复：读完立刻 Close 流 =====
-	output.Close() // ← 加上这行！触发 llm 节点的 OnEndWithStreamOutput 回调
+	output.Close() // ← 加上这行！触发 llm 节点的 OnEndWithStreamOutput 回调，
+	//               否则流式结束时 cozeloop 可能收不到最终 trace。
 
-	// 给异步上报留时间
+	// 给异步上报留时间（cozeloop 是异步上报，sleep 一下确保 trace 发出去）
 	fmt.Println("\n=== 等待 trace 上报 ===")
 	time.Sleep(3 * time.Second)
 

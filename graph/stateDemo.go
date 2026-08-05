@@ -12,10 +12,15 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// State 是“图状态”：整张图运行期间一直存活的共享对象，任何节点都能读写。
+// 这里只用 History 存两段“角色描述”，供不同分支读取。
+// 注意：图的输入/输出类型都是 map[string]any（用 any 是为了在节点间灵活传值）。
 type State struct {
 	History map[string]any
 }
 
+// NewState 是 State 的初始化函数，通过 WithGenLocalState 注册给图。
+// 每次运行 Compile 后的 Runnable，都会新建一份独立的 State。
 func NewState(ctx context.Context) *State {
 	return &State{History: make(map[string]any)}
 }
@@ -26,13 +31,18 @@ func main() {
 	fmt.Println(".env加载成功")
 	ctx := context.Background()
 
+	// 创建带 State 的图：第二个泛型是输出类型 *schema.Message（最终给大模型）。
+	// WithGenLocalState(NewState) 告诉框架“这张图有一个共享 State，用 NewState 初始化”。
 	graph := compose.NewGraph[map[string]any, *schema.Message](
 		compose.WithGenLocalState(NewState),
 	)
 
+	// lambda（路由节点）：根据输入 role，原样输出 {role, content} 供后面 branch 判断；
+	// 同时用 ProcessState 往 State.History 写入两段角色描述（aojiao/keai 各一句）。
+	// ProcessState：在节点内部安全地读写 State（框架会处理并发）。
 	lamdba := compose.InvokableLambda(func(ctx context.Context,
 		input map[string]any) (output map[string]any, err error) {
-		//在节点内部处理state
+		//在节点内部处理state（写）
 		_ = compose.ProcessState[*State](ctx, func(_ context.Context, state *State) error {
 			state.History["aojiao_action"] = "我喜欢你"
 			state.History["keai_action"] = "摸摸头"
@@ -46,10 +56,11 @@ func main() {
 		}
 		return map[string]any{"role": "user", "content": input["content"]}, nil
 	})
-	//建立分支
+	// lambda1（傲娇分支）：从 State 读出 aojiao_action 拼到用户问题后面，再构造 prompt 消息。
+	// 这里演示“State 被另一个节点读取”——lambda 写入，这里读取，无需用边传递。
 	aojiaoLamdba := compose.InvokableLambda(func(ctx context.Context,
 		input map[string]any) (output []*schema.Message, err error) {
-		//在节点内部处理state
+		//在节点内部处理state（读）
 		_ = compose.ProcessState[*State](ctx, func(_ context.Context, state *State) error {
 			content, _ := input["content"].(string)
 			content += state.History["aojiao_action"].(string)
@@ -68,6 +79,7 @@ func main() {
 		}, nil
 	})
 
+	// lambda2（可爱分支）：和傲娇分支逻辑一模一样，只是从 State 读 keai_action。
 	keailambda := compose.InvokableLambda(func(ctx context.Context,
 		input map[string]any) (output []*schema.Message, err error) {
 		_ = compose.ProcessState[*State](ctx, func(_ context.Context, state *State) error {
@@ -87,6 +99,8 @@ func main() {
 			},
 		}, nil
 	})
+	// 建立分支（Branch）：根据输入 in["role"] 的值，把数据路由到 lambda1（傲娇）或 lambda2（可爱）。
+	// 注意 in["role"] 是 any，先用 .(string) 断言成字符串再判断。
 	branch := compose.NewGraphBranch(
 		func(ctx context.Context, in map[string]any) (string, error) {
 			role, ok := in["role"].(string)
@@ -102,7 +116,7 @@ func main() {
 				return "lambda1", nil
 			}
 		},
-		// 第二个参数：所有分支可跳转节点列表
+		// 第二个参数：所有分支可跳转节点列表（框架据此校验分支输出必须落在这几个节点里）
 		map[string]bool{
 			"lambda1": true,
 			"lambda2": true,
@@ -128,7 +142,9 @@ func main() {
 	}
 
 	//
-	// 2. 绑定分支：lambda节点输出走分支路由
+	// 2. 绑定分支：lambda节点输出走分支路由。
+	// ⚠️ 重要顺序：AddBranch 必须在 lambda1/lambda2 这两个目标节点“已加入图”之后调用，
+	// 否则编译会报 "branch end node needs to be added to graph first"。
 	err = graph.AddBranch("lambda", branch)
 	if err != nil {
 		panic(err)

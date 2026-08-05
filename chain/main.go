@@ -20,11 +20,12 @@ func main() {
 	ctx := context.Background()
 	chatModelClient := ChatModelClient(ctx)
 	templateClient := ChatTemplateClient(ctx)
-	//要点：
-	//1.前一个节点的输出类型，要和下一个节点的输入类型相同
-	//2.不用手写连到 END
-	//3.Chain 也能分支/并行
-	//4.Chain 可被嵌套复用
+	// 要点（新手必记）：
+	// 1. 前一个节点的“输出类型”必须等于下一个节点的“输入类型”，否则编译报 mismatch。
+	//    这里 ChatTemplate 输出 []*schema.Message，正好就是 ChatModel 的输入类型。
+	// 2. Chain 是“直线糖葫芦”，不用像 Graph 那样手写 AddEdge / 连到 END。
+	// 3. Chain 也能分支/并行，但本例是简单的 模板→模型 两步。
+	// 4. Chain 可被嵌套复用（当成一个节点放进更大的 Graph 里）。
 	chain := compose.NewChain[map[string]any, *schema.Message]().
 		AppendChatTemplate(templateClient).
 		AppendChatModel(chatModelClient)

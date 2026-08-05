@@ -11,6 +11,11 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
+// 本示例是一个“完整 RAG”（检索增强生成）流程：
+//   - 先让模型判断问题要不要查知识库（意图路由 needRetrieve）；
+//   - 需要就先去 Milvus 检索相关资料，拼进 prompt；
+//   - 不需要就直接对话，完全不碰向量库。
+// 各部件（Milvus/Embedder/ChatModel/Retriever）的初始化都在同目录的 new*.go 里。
 func main() {
 	ctx := context.Background()
 	milvusClient := MilvusClient(ctx)
@@ -21,7 +26,7 @@ func main() {
 	// 你的提问（实际使用时可改为从命令行/前端获取）
 	query := "今天天气怎么样"
 
-	// 1) 意图路由：判断这个问题是否需要查向量库
+	// 1) 意图路由：用模型判断这个问题是否需要查向量库（避免无关问题也去检索，省钱省时）
 	needRAG, err := needRetrieve(ctx, chatModel, query)
 	if err != nil {
 		panic(err)
